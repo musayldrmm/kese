@@ -1,0 +1,8 @@
+# Kese yedek ve takvim dosyaları
+kese-yedek-*.json
+kese-hatirlatmalar-*.ics
+
+# Sistem dosyaları
+.DS_Store
+__pycache__/
+*.pyc
