@@ -97,6 +97,15 @@ Kredi kartı ekstre kesim ve son ödeme tarihleri ile kredi taksit tarihleri, ha
 
 Ayarlar → **Tarih hesaplama → İş gününe taşı** anahtarıyla bu davranışı kapatabilirsin. Resmi tatiller 2025-2029 için tanımlıdır; sonraki yıllarda hafta sonu ve sabit milli bayramlar dikkate alınır. Kira, fatura ve abonelik gibi düzenli ödemeler girilen tarihte kalır. Bankan iş gününe taşıma yapmıyorsa anahtarı kapat.
 
+## Ekstresi zaten kesilmiş kart
+
+Kart eklerken **Son ekstre kesim tarihi** alanına son ekstrenin gerçekten kesildiği tarihi seç (örn. 25 Ekim). Kese borcu bu ekstreye bağlar, son ödeme tarihini bu tarihten hesaplar ve sonraki ekstre tarihini ayrıca gösterir.
+
+- Boş bırakırsan kesim gününe göre otomatik hesaplanır.
+- Yeni ekstre kesildiğinde Kese son ekstre tarihini otomatik ilerletir ve kart detayında **“Güncel ekstre tutarını girmeyi unutma”** uyarısı gösterir.
+- Borcu güncellediğinde uyarı kalkar.
+- Kart listesinde ödemesi henüz geçmemişse **Son ekstre** ve **Son ödeme** birlikte gösterilir; böylece borcun hangi ekstreye ait olduğu net olur.
+
 ## Yedekleme
 
 Ayarlar → **Yedek al** ile tüm kayıtları JSON olarak kaydet. iPhone'da paylaş menüsü açılır; **Dosyalar'a Kaydet** diyerek yeri kendin seçebilirsin. Paylaş menüsü çıkmazsa dosya **Dosyalar → İndirilenler** klasörüne gider. Safari verilerini temizlersen kayıtlar silinebilir; ara ara yedek al. **Yedekten yükle** ile geri yükle.

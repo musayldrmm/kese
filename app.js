@@ -9,7 +9,7 @@
   const STORAGE_KEY = "kese.data.v1";
   const SETTINGS_KEY = "kese.settings.v1";
   const NOTIFY_LOG_KEY = "kese.notifyLog.v1";
-  const APP_VERSION = "1.2.1";
+  const APP_VERSION = "1.3.0";
   const SCHEMA_VERSION = 2;
   const NOTIFICATION_CHECK_MS = 60 * 1000;
   const CALENDAR_MONTHS = 12;
@@ -247,6 +247,7 @@
       const name = String(raw.name || "").trim().slice(0, 60);
       if (!name) return;
       const createdAt = isoDate(raw.createdAt) || new Date().toISOString();
+      const lastCutDate = parseYMD(raw.lastCutDate);
       result.cards.push({
         id: nextId(raw.id, "card"),
         name,
@@ -255,6 +256,7 @@
         debt: Math.max(0, toInt(raw.debt, 0)),
         accent: ACCENT_KEYS.includes(raw.accent) ? raw.accent : ACCENT_KEYS[index % ACCENT_KEYS.length],
         notify: raw.notify !== false,
+        lastCutDate: lastCutDate ? ymd(lastCutDate) : null,
         createdAt,
         debtUpdatedAt: isoDate(raw.debtUpdatedAt) || createdAt
       });
@@ -463,6 +465,13 @@
     return `${diff} gün kaldı`;
   }
 
+  function elapsedDays(date) {
+    const diff = daysBetween(date, today());
+    if (diff <= 0) return "Bugün";
+    if (diff === 1) return "Dün";
+    return `${diff} gün önce`;
+  }
+
   function relativeClass(date) {
     const diff = daysBetween(today(), date);
     if (diff < 0) return "is-overdue";
@@ -543,8 +552,23 @@
   }
 
   function cardSchedule(card, from = today()) {
-    const currentCut = latestShiftedDay(card.cutDay, from);
-    const nextCut = nextShiftedDay(card.cutDay, from);
+    let currentCut = null;
+    let nextCut = null;
+    const anchor = parseYMD(card.lastCutDate);
+    if (anchor && anchor <= from) {
+      currentCut = startOfDay(anchor);
+      nextCut = shiftToBusinessDay(addMonthsClamped(currentCut, 1, card.cutDay));
+      let guard = 0;
+      while (nextCut <= from && guard < 600) {
+        currentCut = nextCut;
+        nextCut = shiftToBusinessDay(addMonthsClamped(currentCut, 1, card.cutDay));
+        guard += 1;
+      }
+    }
+    if (!currentCut || !nextCut) {
+      currentCut = latestShiftedDay(card.cutDay, from);
+      nextCut = nextShiftedDay(card.cutDay, from);
+    }
     const currentDue = shiftToBusinessDay(addDays(currentCut, card.dueOffset));
     const nextDue = shiftToBusinessDay(addDays(nextCut, card.dueOffset));
     return {
@@ -639,12 +663,13 @@
 
     data.cards.forEach((card) => {
       const schedule = cardSchedule(card, now);
+      const cutDate = schedule.currentCut >= now ? schedule.currentCut : schedule.nextCut;
       events.push({
-        key: `cut-${card.id}-${ymd(schedule.nextCut)}`,
+        key: `cut-${card.id}-${ymd(cutDate)}`,
         kind: "card",
         id: card.id,
         action: "open-card",
-        date: schedule.nextCut,
+        date: cutDate,
         title: card.name,
         subtitle: "Ekstre kesimi",
         icon: "calendar",
@@ -786,11 +811,12 @@
     data.cards.forEach((card) => {
       if (card.notify === false) return;
       const schedule = cardSchedule(card, day);
-      if (settings.notifications.cut && ymd(schedule.nextCut) === dayKey) {
+      const cutToday = ymd(schedule.currentCut) === dayKey || ymd(schedule.nextCut) === dayKey;
+      if (settings.notifications.cut && cutToday) {
         reminders.push({
           key: `${dayKey}|card-cut|${card.id}`,
           title: `Ekstre kesildi · ${card.name}`,
-          body: "Bugün ekstre kesim günü. Yeni ekstre tutarını Kese'ye girmeyi unutma.",
+          body: `Bugün ekstre kesim günü. Son ödeme: ${formatShort(schedule.due)}. Yeni ekstre tutarını Kese'ye girmeyi unutma.`,
           tag: `kese-card-cut-${card.id}`,
           tab: "kartlar",
           entityType: "card",
@@ -985,8 +1011,9 @@
 
     data.cards.forEach((card) => {
       if (card.notify === false) return;
+      const schedule = cardSchedule(card, start);
       if (settings.notifications.cut) {
-        let cut = nextShiftedDay(card.cutDay, start);
+        let cut = schedule.nextCut;
         let guard = 0;
         while (cut <= end && guard < 60) {
           push(
@@ -997,15 +1024,15 @@
             `${card.name} · Ekstre kesimi`,
             "Ekstre kesim günü. Yeni ekstre tutarını Kese'ye girmeyi unutma."
           );
-          cut = nextShiftedDay(card.cutDay, addDays(cut, 1));
+          cut = shiftToBusinessDay(addMonthsClamped(cut, 1, card.cutDay));
           guard += 1;
         }
       }
       if (settings.notifications.payment && card.debt > 0) {
-        let cut = latestShiftedDay(card.cutDay, start);
+        let cut = schedule.currentCut;
         let due = shiftToBusinessDay(addDays(cut, card.dueOffset));
         if (due < start) {
-          cut = nextShiftedDay(card.cutDay, addDays(cut, 1));
+          cut = shiftToBusinessDay(addMonthsClamped(cut, 1, card.cutDay));
           due = shiftToBusinessDay(addDays(cut, card.dueOffset));
         }
         let guard = 0;
@@ -1018,7 +1045,7 @@
             `${card.name} · Son ödeme`,
             `${formatMoney(card.debt)} kart borcunun son ödeme günü.`
           );
-          cut = nextShiftedDay(card.cutDay, addDays(cut, 1));
+          cut = shiftToBusinessDay(addMonthsClamped(cut, 1, card.cutDay));
           due = shiftToBusinessDay(addDays(cut, card.dueOffset));
           guard += 1;
         }
@@ -1762,7 +1789,11 @@
 
   function cardTile(card) {
     const schedule = cardSchedule(card);
-    const cutWhen = relativeClass(schedule.nextCut);
+    const showCurrent = schedule.currentDue >= today();
+    const primaryCut = showCurrent ? schedule.currentCut : schedule.nextCut;
+    const primaryCutLabel = showCurrent ? "Son ekstre" : "Sonraki ekstre";
+    const primaryCutWhen = showCurrent ? elapsedDays(schedule.currentCut) : relativeDays(schedule.nextCut);
+    const cutWhen = relativeClass(primaryCut);
     const dueWhen = relativeClass(schedule.due);
     return `
       <button type="button" class="card-tile accent-${card.accent}" data-action="open-card" data-id="${card.id}" aria-label="${escapeHTML(`${card.name} kart detayını aç`)}">
@@ -1783,9 +1814,9 @@
         </span>
         <span class="tile-schedule">
           <span class="schedule-cell${cutWhen === "is-soon" ? " is-soon" : ""}">
-            <span class="schedule-label">Sonraki ekstre</span>
-            <span class="schedule-date">${formatShort(schedule.nextCut)}</span>
-            <span class="schedule-when">${relativeDays(schedule.nextCut)}</span>
+            <span class="schedule-label">${primaryCutLabel}</span>
+            <span class="schedule-date">${formatShort(primaryCut)}</span>
+            <span class="schedule-when">${primaryCutWhen}</span>
           </span>
           <span class="schedule-cell${dueWhen === "is-soon" ? " is-soon" : ""}">
             <span class="schedule-label">Son ödeme</span>
@@ -2008,6 +2039,12 @@
             <p class="hint">Kesimden kaç gün sonra? Hafta sonu/tatile denk gelirse sonraki iş gününe taşınır.</p>
           </div>
         </div>
+        <div class="field" data-field="lastCutDate">
+          <label class="field-label" for="cardLastCut">Son ekstre kesim tarihi <span class="optional">ekstre zaten kesildiyse</span></label>
+          <input class="input" id="cardLastCut" name="lastCutDate" type="date" max="${ymd(today())}" value="${card && card.lastCutDate ? card.lastCutDate : ""}">
+          ${fieldError("lastCutDate")}
+          <p class="hint">Ekstren daha önce kesildiyse gerçek kesim tarihini seç. Kese bu tarihten sonraki kesimleri otomatik ilerletir; boş bırakırsan kesim gününe göre hesaplanır.</p>
+        </div>
         <div class="field" data-field="debt">
           <label class="field-label" for="cardDebt">Güncel borç <span class="optional">sonradan güncellenebilir</span></label>
           <div class="input-wrap">
@@ -2143,6 +2180,13 @@
       const offsetRaw = form.elements.dueOffset.value.trim();
       const offset = offsetRaw === "" ? 10 : Number(offsetRaw);
       if (!Number.isFinite(cutDay) || cutDay < 1 || cutDay > 31) return;
+      const lastCutRaw = form.elements.lastCutDate ? form.elements.lastCutDate.value : "";
+      const lastCut = parseYMD(lastCutRaw);
+      if (lastCut) {
+        const schedule = cardSchedule({ cutDay, dueOffset: Number.isFinite(offset) ? clamp(offset, 0, 30) : 10, lastCutDate: ymd(lastCut) });
+        text.innerHTML = `Son ekstre <strong>${formatShort(schedule.currentCut)}</strong> · son ödeme <strong>${formatShort(schedule.due)}</strong> · sonraki ekstre <strong>${formatShort(schedule.nextCut)}</strong>.`;
+        return;
+      }
       const nominalCut = nextShiftedOccurrence(cutDay).nominal;
       const nextCut = shiftToBusinessDay(nominalCut);
       const due = shiftToBusinessDay(addDays(nextCut, Number.isFinite(offset) ? clamp(offset, 0, 30) : 10));
@@ -2212,9 +2256,15 @@
 
   function cardDetailBody(card) {
     const schedule = cardSchedule(card);
-    const cutClass = relativeClass(schedule.nextCut);
+    const showCurrent = schedule.currentDue >= today();
+    const cutDate = showCurrent ? schedule.currentCut : schedule.nextCut;
+    const cutLabel = showCurrent ? "Son ekstre" : "Sonraki ekstre";
+    const cutWhen = showCurrent ? elapsedDays(schedule.currentCut) : relativeDays(schedule.nextCut);
+    const cutClass = showCurrent ? "" : relativeClass(schedule.nextCut);
     const dueClass = relativeClass(schedule.due);
     const updated = isoDate(card.debtUpdatedAt);
+    const updatedDate = updated ? startOfDay(new Date(updated)) : null;
+    const staleDebt = updatedDate ? daysBetween(updatedDate, schedule.currentCut) > 0 : false;
     return `
       <div class="sheet-body">
         <div class="detail-amount-block">
@@ -2242,9 +2292,9 @@
 
         <div class="schedule-card">
           <div>
-            <div class="sc-label">Sonraki ekstre</div>
-            <div class="sc-date">${formatShort(schedule.nextCut)}</div>
-            <div class="sc-when ${cutClass}">${relativeDays(schedule.nextCut)}</div>
+            <div class="sc-label">${cutLabel}</div>
+            <div class="sc-date">${formatShort(cutDate)}</div>
+            <div class="sc-when ${cutClass}">${cutWhen}</div>
           </div>
           <div>
             <div class="sc-label">Son ödeme</div>
@@ -2253,7 +2303,11 @@
           </div>
         </div>
 
+        ${staleDebt ? `<div class="detail-note is-warning">${icon("alert")}<span>Son ekstre ${formatShort(schedule.currentCut)} tarihinde kesildi. Güncel ekstre tutarını girmeyi unutma.</span></div>` : ""}
+
         <div class="info-list">
+          <div class="info-row"><span class="info-label">Son ekstre</span><span class="info-value">${formatShort(schedule.currentCut)}</span></div>
+          <div class="info-row"><span class="info-label">Sonraki ekstre</span><span class="info-value">${formatShort(schedule.nextCut)}</span></div>
           <div class="info-row"><span class="info-label">Kesim günü</span><span class="info-value">Her ayın ${card.cutDay}. günü</span></div>
           <div class="info-row"><span class="info-label">Ödeme vadesi</span><span class="info-value">Kesimden ${card.dueOffset} gün sonra</span></div>
           <div class="info-row"><span class="info-label">Kart rengi</span><span class="info-value">${escapeHTML(ACCENT_LABELS[card.accent] || "Mint")}</span></div>
@@ -2710,13 +2764,21 @@
       const dueOffset = offsetRaw === "" ? 10 : Number(offsetRaw);
       const debt = readMoneyField(form, "debt", "debt", { allowZero: true, allowEmpty: true });
       const accent = readChecked(form, "accent", ACCENT_KEYS[data.cards.length % ACCENT_KEYS.length]);
+      const lastCutRaw = String(form.elements.lastCutDate ? form.elements.lastCutDate.value : "").trim();
+      let lastCutDate = null;
+      if (lastCutRaw) {
+        lastCutDate = parseYMD(lastCutRaw);
+        if (!lastCutDate || lastCutDate > today()) {
+          setFieldError(form, "lastCutDate", "Bugün veya geçmiş bir tarih seç.");
+        }
+      }
       if (!Number.isInteger(cutDay) || cutDay < 1 || cutDay > 31) {
         setFieldError(form, "cutDay", "1 ile 31 arasında bir gün seç.");
       }
       if (!Number.isInteger(dueOffset) || dueOffset < 0 || dueOffset > 30) {
         setFieldError(form, "dueOffset", "0 ile 30 arasında bir gün gir.");
       }
-      if (!name || debt == null) {
+      if (!name || debt == null || (lastCutRaw && !lastCutDate)) {
         focusFirstError(form);
         return;
       }
@@ -2736,6 +2798,7 @@
         card.dueOffset = dueOffset;
         card.debt = debt;
         card.accent = accent;
+        card.lastCutDate = lastCutDate ? ymd(lastCutDate) : null;
         if (debtChanged) card.debtUpdatedAt = nowIso;
       } else {
         data.cards.push({
@@ -2746,6 +2809,7 @@
           debt,
           accent,
           notify: true,
+          lastCutDate: lastCutDate ? ymd(lastCutDate) : null,
           createdAt: nowIso,
           debtUpdatedAt: nowIso
         });
