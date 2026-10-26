@@ -9,7 +9,7 @@
   const STORAGE_KEY = "kese.data.v1";
   const SETTINGS_KEY = "kese.settings.v1";
   const NOTIFY_LOG_KEY = "kese.notifyLog.v1";
-  const APP_VERSION = "1.3.0";
+  const APP_VERSION = "1.3.1";
   const SCHEMA_VERSION = 2;
   const NOTIFICATION_CHECK_MS = 60 * 1000;
   const CALENDAR_MONTHS = 12;
@@ -2306,8 +2306,9 @@
         ${staleDebt ? `<div class="detail-note is-warning">${icon("alert")}<span>Son ekstre ${formatShort(schedule.currentCut)} tarihinde kesildi. Güncel ekstre tutarını girmeyi unutma.</span></div>` : ""}
 
         <div class="info-list">
-          <div class="info-row"><span class="info-label">Son ekstre</span><span class="info-value">${formatShort(schedule.currentCut)}</span></div>
-          <div class="info-row"><span class="info-label">Sonraki ekstre</span><span class="info-value">${formatShort(schedule.nextCut)}</span></div>
+          ${showCurrent
+            ? `<div class="info-row"><span class="info-label">Sonraki ekstre</span><span class="info-value">${formatShort(schedule.nextCut)}</span></div>`
+            : `<div class="info-row"><span class="info-label">Son ekstre</span><span class="info-value">${formatShort(schedule.currentCut)}</span></div>`}
           <div class="info-row"><span class="info-label">Kesim günü</span><span class="info-value">Her ayın ${card.cutDay}. günü</span></div>
           <div class="info-row"><span class="info-label">Ödeme vadesi</span><span class="info-value">Kesimden ${card.dueOffset} gün sonra</span></div>
           <div class="info-row"><span class="info-label">Kart rengi</span><span class="info-value">${escapeHTML(ACCENT_LABELS[card.accent] || "Mint")}</span></div>
