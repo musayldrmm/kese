@@ -9,7 +9,7 @@
   const STORAGE_KEY = "kese.data.v1";
   const SETTINGS_KEY = "kese.settings.v1";
   const NOTIFY_LOG_KEY = "kese.notifyLog.v1";
-  const APP_VERSION = "1.1.1";
+  const APP_VERSION = "1.2.1";
   const SCHEMA_VERSION = 2;
   const NOTIFICATION_CHECK_MS = 60 * 1000;
   const CALENDAR_MONTHS = 12;
@@ -40,6 +40,26 @@
     quarterly: { label: "3 ayda bir", short: "3 aylık", months: 3 },
     yearly: { label: "Her yıl", short: "Yıllık", months: 12 },
     weekly: { label: "Her hafta", short: "Haftalık", months: 0 }
+  };
+
+  // Sabit resmi tatiller: [ay (0-11), gün]
+  const FIXED_HOLIDAYS = [
+    [0, 1],   // Yılbaşı
+    [3, 23],  // Ulusal Egemenlik ve Çocuk Bayramı
+    [4, 1],   // Emek ve Dayanışma Günü
+    [4, 19],  // Atatürk'ü Anma, Gençlik ve Spor Bayramı
+    [6, 15],  // Demokrasi ve Millî Birlik Günü
+    [7, 30],  // Zafer Bayramı
+    [9, 29]   // Cumhuriyet Bayramı
+  ];
+
+  // Diyanet takvimine göre dini bayramlar (2025-2029). Yeni yıllar eklendikçe güncellenmeli.
+  const RELIGIOUS_HOLIDAYS = {
+    2025: [[2, 30], [2, 31], [3, 1], [5, 6], [5, 7], [5, 8], [5, 9]],
+    2026: [[2, 20], [2, 21], [2, 22], [4, 27], [4, 28], [4, 29], [4, 30]],
+    2027: [[2, 9], [2, 10], [2, 11], [4, 16], [4, 17], [4, 18], [4, 19]],
+    2028: [[1, 26], [1, 27], [1, 28], [4, 5], [4, 6], [4, 7], [4, 8]],
+    2029: [[1, 14], [1, 15], [1, 16], [3, 24], [3, 25], [3, 26], [3, 27]]
   };
 
   const ICONS = {
@@ -112,7 +132,8 @@
         enabled: false,
         cut: true,
         payment: true
-      }
+      },
+      businessDays: true
     };
   }
 
@@ -126,7 +147,8 @@
           enabled: source.enabled === true,
           cut: source.cut !== false,
           payment: source.payment !== false
-        }
+        },
+        businessDays: raw.businessDays !== false
       };
     } catch (error) {
       console.warn("Kese: ayarlar okunamadı", error);
@@ -354,16 +376,65 @@
     return new Date(year, month, Math.min(day, daysInMonth(year, month)));
   }
 
-  function nextOnDay(day, from = today()) {
-    const thisMonth = dayInMonth(from.getFullYear(), from.getMonth(), day);
-    if (thisMonth >= from) return thisMonth;
-    return dayInMonth(from.getFullYear(), from.getMonth() + 1, day);
+  function isWeekend(date) {
+    const day = date.getDay();
+    return day === 0 || day === 6;
   }
 
-  function lastOnDay(day, from = today()) {
-    const thisMonth = dayInMonth(from.getFullYear(), from.getMonth(), day);
-    if (thisMonth <= from) return thisMonth;
-    return dayInMonth(from.getFullYear(), from.getMonth() - 1, day);
+  function isHoliday(date) {
+    const month = date.getMonth();
+    const day = date.getDate();
+    if (FIXED_HOLIDAYS.some(([holidayMonth, holidayDay]) => holidayMonth === month && holidayDay === day)) return true;
+    const religious = RELIGIOUS_HOLIDAYS[date.getFullYear()];
+    return Boolean(religious && religious.some(([holidayMonth, holidayDay]) => holidayMonth === month && holidayDay === day));
+  }
+
+  function isBusinessDay(date) {
+    return !isWeekend(date) && !isHoliday(date);
+  }
+
+  function shiftToBusinessDay(date) {
+    const start = startOfDay(date);
+    if (!settings.businessDays) return start;
+    let result = start;
+    let guard = 0;
+    while (!isBusinessDay(result) && guard < 20) {
+      result = addDays(result, 1);
+      guard += 1;
+    }
+    return result;
+  }
+
+  function latestShiftedDay(day, from = today()) {
+    return latestShiftedOccurrence(day, from).shifted;
+  }
+
+  function nextShiftedDay(day, from = today()) {
+    return nextShiftedOccurrence(day, from).shifted;
+  }
+
+  function latestShiftedOccurrence(day, from = today()) {
+    for (let offset = 0; offset <= 2; offset += 1) {
+      const nominal = dayInMonth(from.getFullYear(), from.getMonth() - offset, day);
+      const shifted = shiftToBusinessDay(nominal);
+      if (shifted <= from) return { nominal, shifted };
+    }
+    const nominal = dayInMonth(from.getFullYear(), from.getMonth() - 2, day);
+    return { nominal, shifted: shiftToBusinessDay(nominal) };
+  }
+
+  function nextShiftedOccurrence(day, from = today()) {
+    for (let offset = 0; offset <= 2; offset += 1) {
+      const nominal = dayInMonth(from.getFullYear(), from.getMonth() + offset, day);
+      const shifted = shiftToBusinessDay(nominal);
+      if (shifted >= from) return { nominal, shifted };
+    }
+    const nominal = dayInMonth(from.getFullYear(), from.getMonth() + 2, day);
+    return { nominal, shifted: shiftToBusinessDay(nominal) };
+  }
+
+  function isShiftedDate(nominal, shifted) {
+    return Boolean(settings.businessDays && nominal && shifted && ymd(nominal) !== ymd(shifted));
   }
 
   function daysBetween(a, b) {
@@ -472,10 +543,10 @@
   }
 
   function cardSchedule(card, from = today()) {
-    const currentCut = lastOnDay(card.cutDay, from);
-    const nextCut = nextOnDay(card.cutDay, from);
-    const currentDue = addDays(currentCut, card.dueOffset);
-    const nextDue = addDays(nextCut, card.dueOffset);
+    const currentCut = latestShiftedDay(card.cutDay, from);
+    const nextCut = nextShiftedDay(card.cutDay, from);
+    const currentDue = shiftToBusinessDay(addDays(currentCut, card.dueOffset));
+    const nextDue = shiftToBusinessDay(addDays(nextCut, card.dueOffset));
     return {
       currentCut,
       nextCut,
@@ -499,6 +570,11 @@
   function advanceLoan(loan) {
     const current = parseYMD(loan.nextDate) || today();
     return ymd(addMonthsClamped(current, 1, loan.anchorDay));
+  }
+
+  function loanEffectiveDate(loan) {
+    const nominal = parseYMD(loan.nextDate);
+    return nominal ? shiftToBusinessDay(nominal) : null;
   }
 
   function monthLabel(date) {
@@ -540,7 +616,7 @@
       }
     });
     data.loans.forEach((loan) => {
-      const date = parseYMD(loan.nextDate);
+      const date = loanEffectiveDate(loan);
       if (loan.remaining > 0 && date && sameMonth(date, now)) {
         total += loan.amount;
         count += 1;
@@ -591,7 +667,7 @@
 
     data.loans.forEach((loan) => {
       if (loan.remaining <= 0) return;
-      const date = parseYMD(loan.nextDate);
+      const date = loanEffectiveDate(loan);
       if (!date || date > horizon) return;
       events.push({
         key: `loan-${loan.id}-${ymd(date)}`,
@@ -736,7 +812,7 @@
 
     data.loans.forEach((loan) => {
       if (loan.remaining <= 0 || loan.notify === false || !settings.notifications.payment) return;
-      const date = parseYMD(loan.nextDate);
+      const date = loanEffectiveDate(loan);
       if (!date || ymd(date) !== dayKey) return;
       reminders.push({
         key: `${dayKey}|loan|${loan.id}`,
@@ -843,6 +919,17 @@
     showToast(`${label} hatırlatması ${settings.notifications[type] ? "açıldı" : "kapatıldı"}.`, { icon: "info" });
   }
 
+  function toggleBusinessDays() {
+    settings.businessDays = !settings.businessDays;
+    saveSettings();
+    refreshSheet();
+    render();
+    showToast(
+      settings.businessDays ? "İş gününe taşıma açıldı." : "İş gününe taşıma kapatıldı.",
+      { icon: "calendar" }
+    );
+  }
+
   function toggleEntityNotify(type, id) {
     const collection = { card: "cards", loan: "loans", recurring: "recurrings" }[type];
     if (!collection || !id) return;
@@ -899,8 +986,9 @@
     data.cards.forEach((card) => {
       if (card.notify === false) return;
       if (settings.notifications.cut) {
-        let cut = nextOnDay(card.cutDay, start);
-        while (cut <= end) {
+        let cut = nextShiftedDay(card.cutDay, start);
+        let guard = 0;
+        while (cut <= end && guard < 60) {
           push(
             cut,
             "card",
@@ -909,17 +997,19 @@
             `${card.name} · Ekstre kesimi`,
             "Ekstre kesim günü. Yeni ekstre tutarını Kese'ye girmeyi unutma."
           );
-          cut = addMonthsClamped(cut, 1, card.cutDay);
+          cut = nextShiftedDay(card.cutDay, addDays(cut, 1));
+          guard += 1;
         }
       }
       if (settings.notifications.payment && card.debt > 0) {
-        let cut = lastOnDay(card.cutDay, start);
-        let due = addDays(cut, card.dueOffset);
+        let cut = latestShiftedDay(card.cutDay, start);
+        let due = shiftToBusinessDay(addDays(cut, card.dueOffset));
         if (due < start) {
-          cut = addMonthsClamped(cut, 1, card.cutDay);
-          due = addDays(cut, card.dueOffset);
+          cut = nextShiftedDay(card.cutDay, addDays(cut, 1));
+          due = shiftToBusinessDay(addDays(cut, card.dueOffset));
         }
-        while (due <= end) {
+        let guard = 0;
+        while (due <= end && guard < 60) {
           push(
             due,
             "card",
@@ -928,33 +1018,37 @@
             `${card.name} · Son ödeme`,
             `${formatMoney(card.debt)} kart borcunun son ödeme günü.`
           );
-          cut = addMonthsClamped(cut, 1, card.cutDay);
-          due = addDays(cut, card.dueOffset);
+          cut = nextShiftedDay(card.cutDay, addDays(cut, 1));
+          due = shiftToBusinessDay(addDays(cut, card.dueOffset));
+          guard += 1;
         }
       }
     });
 
     data.loans.forEach((loan) => {
       if (loan.remaining <= 0 || loan.notify === false || !settings.notifications.payment) return;
-      let date = parseYMD(loan.nextDate);
-      if (!date) return;
+      let nominal = parseYMD(loan.nextDate);
+      if (!nominal) return;
       let remaining = loan.remaining;
       let guard = 0;
-      while (date < start && remaining > 0 && guard < 600) {
-        date = addMonthsClamped(date, 1, loan.anchorDay);
+      let effective = shiftToBusinessDay(nominal);
+      while (effective < start && remaining > 0 && guard < 600) {
+        nominal = addMonthsClamped(nominal, 1, loan.anchorDay);
+        effective = shiftToBusinessDay(nominal);
         remaining -= 1;
         guard += 1;
       }
-      while (date <= end && remaining > 0 && guard < 600) {
+      while (effective <= end && remaining > 0 && guard < 600) {
         push(
-          date,
+          effective,
           "loan",
           loan.id,
           "payment",
           `${loan.name} · Taksit`,
           `${formatMoney(loan.amount)} taksit ödemesi. ${remaining} taksit kaldı.`
         );
-        date = addMonthsClamped(date, 1, loan.anchorDay);
+        nominal = addMonthsClamped(nominal, 1, loan.anchorDay);
+        effective = shiftToBusinessDay(nominal);
         remaining -= 1;
         guard += 1;
       }
@@ -1749,7 +1843,7 @@
 
   function loanTile(loan) {
     const complete = loan.remaining <= 0;
-    const next = parseYMD(loan.nextDate) || today();
+    const next = loanEffectiveDate(loan) || today();
     const total = loan.totalInstallments;
     const paid = total ? Math.max(0, total - loan.remaining) : null;
     const progress = total ? Math.round((paid / total) * 100) : 0;
@@ -1911,7 +2005,7 @@
               <span class="input-suffix">gün sonra</span>
             </div>
             ${fieldError("dueOffset")}
-            <p class="hint">Kesimden kaç gün sonra?</p>
+            <p class="hint">Kesimden kaç gün sonra? Hafta sonu/tatile denk gelirse sonraki iş gününe taşınır.</p>
           </div>
         </div>
         <div class="field" data-field="debt">
@@ -1962,7 +2056,7 @@
           <label class="field-label" for="loanNextDate">Sonraki taksit tarihi</label>
           <input class="input" id="loanNextDate" name="nextDate" type="date" value="${loan ? loan.nextDate : ymd(today())}">
           ${fieldError("nextDate")}
-          <p class="hint">Taksit ödendi dedikçe bir ay ileri alınır.</p>
+          <p class="hint">Taksit ödendi dedikçe bir ay ileri alınır. Hafta sonu/tatile denk gelirse sonraki iş gününde gösterilir.</p>
         </div>
         <div class="field" data-field="totalInstallments">
           <label class="field-label" for="loanTotal">Toplam taksit <span class="optional">isteğe bağlı</span></label>
@@ -2049,26 +2143,30 @@
       const offsetRaw = form.elements.dueOffset.value.trim();
       const offset = offsetRaw === "" ? 10 : Number(offsetRaw);
       if (!Number.isFinite(cutDay) || cutDay < 1 || cutDay > 31) return;
-      const nextCut = nextOnDay(cutDay);
-      const due = addDays(nextCut, Number.isFinite(offset) ? clamp(offset, 0, 30) : 10);
-      text.innerHTML = `Sonraki ekstre <strong>${formatShort(nextCut)}</strong> · tahmini son ödeme <strong>${formatShort(due)}</strong>.`;
+      const nominalCut = nextShiftedOccurrence(cutDay).nominal;
+      const nextCut = shiftToBusinessDay(nominalCut);
+      const due = shiftToBusinessDay(addDays(nextCut, Number.isFinite(offset) ? clamp(offset, 0, 30) : 10));
+      const cutNote = isShiftedDate(nominalCut, nextCut) ? ` (${formatShort(nominalCut)} iş gününe taşındı)` : "";
+      text.innerHTML = `Sonraki ekstre <strong>${formatShort(nextCut)}</strong>${cutNote} · tahmini son ödeme <strong>${formatShort(due)}</strong>.`;
       return;
     }
 
     if (formType === "loan") {
       const remaining = Number(form.elements.remaining.value);
       const amount = parseMoney(form.elements.amount.value);
-      const date = parseYMD(form.elements.nextDate.value);
-      if (!date || !Number.isFinite(remaining) || remaining < 1 || amount == null || amount < 1) {
+      const nominalDate = parseYMD(form.elements.nextDate.value);
+      if (!nominalDate || !Number.isFinite(remaining) || remaining < 1 || amount == null || amount < 1) {
         text.textContent = "Kalan taksit, tutar ve tarihi girdiğinde özet burada görünür.";
         return;
       }
+      const date = shiftToBusinessDay(nominalDate);
+      const shiftNote = isShiftedDate(nominalDate, date) ? ` (${formatShort(nominalDate)} iş gününe taşındı)` : "";
       const total = Number(form.elements.totalInstallments.value);
       let extra = "";
       if (Number.isFinite(total) && total >= remaining) {
         extra = ` · ${total} taksitlik planın ${total - Math.trunc(remaining)} taksiti ödenmiş olur.`;
       }
-      text.innerHTML = `Kalan toplam <strong>${formatMoney(Math.trunc(remaining) * amount)}</strong> · sonraki taksit <strong>${formatShort(date)}</strong>${extra}`;
+      text.innerHTML = `Kalan toplam <strong>${formatMoney(Math.trunc(remaining) * amount)}</strong> · sonraki taksit <strong>${formatShort(date)}</strong>${shiftNote}${extra}`;
       return;
     }
 
@@ -2161,7 +2259,7 @@
           <div class="info-row"><span class="info-label">Kart rengi</span><span class="info-value">${escapeHTML(ACCENT_LABELS[card.accent] || "Mint")}</span></div>
         </div>
 
-        <div class="detail-note">${icon("info")}<span>Son ödeme tarihi, kesim tarihine ${card.dueOffset} gün eklenerek hesaplanır. Borcu istediğin zaman güncelleyebilirsin.</span></div>
+        <div class="detail-note">${icon("info")}<span>Son ödeme tarihi, kesim tarihine ${card.dueOffset} gün eklenerek hesaplanır. Hafta sonu veya resmi tatile denk gelirse sonraki iş gününe taşınır. Borcu istediğin zaman güncelleyebilirsin.</span></div>
 
         ${detailNotifyRow("card", card)}
 
@@ -2175,7 +2273,8 @@
     const total = loan.totalInstallments;
     const paid = total ? Math.max(0, total - loan.remaining) : null;
     const progress = total ? Math.round((paid / total) * 100) : 0;
-    const next = parseYMD(loan.nextDate) || today();
+    const nominalNext = parseYMD(loan.nextDate) || today();
+    const next = shiftToBusinessDay(nominalNext);
     const nextClass = relativeClass(next);
     const totalLeft = loan.amount * loan.remaining;
     return `
@@ -2209,6 +2308,8 @@
             </div>
           </div>
         `}
+
+        ${!complete && isShiftedDate(nominalNext, next) ? `<div class="detail-note">${icon("calendar")}<span>${formatShort(nominalNext)} hafta sonu/resmi tatile denk geldiği için ${formatShort(next)} iş gününde gösteriliyor.</span></div>` : ""}
 
         <div class="info-list">
           <div class="info-row"><span class="info-label">Kalan taksit</span><span class="info-value">${loan.remaining}</span></div>
@@ -2467,6 +2568,25 @@
             </button>
           </div>
           <div class="settings-note">${icon(status.icon)}<span>${escapeHTML(status.text)}</span></div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-title">Tarih hesaplama</h3>
+          <div class="settings-list">
+            <div class="settings-row settings-row--toggle">
+              <span class="settings-row-icon">${icon("calendar")}</span>
+              <span class="settings-row-main">
+                <span class="settings-row-title">İş gününe taşı</span>
+                <span class="settings-row-desc">Kart ekstre kesimi, son ödeme ve kredi taksitleri hafta sonu/resmi tatile denk gelirse sonraki iş gününe taşınır.</span>
+              </span>
+              ${switchControl({
+                checked: settings.businessDays,
+                action: "toggle-business-days",
+                label: "İş gününe taşımayı aç veya kapat"
+              })}
+            </div>
+          </div>
+          <div class="settings-note">${icon("info")}<span>Resmi tatiller 2025-2029 için tanımlı. Sonraki yıllarda hafta sonu ve sabit milli bayramlar dikkate alınır. Kira/fatura gibi düzenli ödemeler girilen tarihte kalır.</span></div>
         </div>
 
         <div class="settings-section">
@@ -3043,6 +3163,9 @@
         break;
       case "toggle-notify-payment":
         toggleNotifyType("payment");
+        break;
+      case "toggle-business-days":
+        toggleBusinessDays();
         break;
       case "test-notification":
         sendTestNotification();

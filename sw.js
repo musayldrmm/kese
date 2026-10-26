@@ -1,7 +1,7 @@
 /* Kese — çevrimdışı uygulama kabuğu */
 "use strict";
 
-const CACHE_VERSION = "kese-1.1.1";
+const CACHE_VERSION = "kese-1.2.1";
 const INDEX_URL = "./index.html";
 
 const APP_SHELL = [

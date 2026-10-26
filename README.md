@@ -86,6 +86,17 @@ Kese iki türlü hatırlatma sunar:
 
 Apple, web uygulamalarının uygulama kapalıyken kendi başına yerel bildirim planlamasına izin vermez. Kese'de sistem bildirimi, uygulama açıldığında veya ön plana geldiğinde kontrol edilir. Uygulama kapalıyken kesin hatırlatma için **Takvime hatırlatma ekle** özelliğini kullan. Gerçek arka plan bildirimi ileride bir push sunucusuyla eklenebilir.
 
+## İş günü hesabı
+
+Kredi kartı ekstre kesim ve son ödeme tarihleri ile kredi taksit tarihleri, hafta sonu veya resmi tatile denk gelirse **sonraki iş gününe** taşınır.
+
+- Ekstre kesimi: nominal kesim günü hafta sonu/tatil ise sonraki iş gününe kayar.
+- Son ödeme: kaymış kesim tarihine ödeme günü eklenir; o tarih de hafta sonu/tatil ise tekrar sonraki iş gününe kayar.
+- Kredi taksiti: girilen nominal tarih korunur, ekranda ve hatırlatmalarda iş günü karşılığı gösterilir. Taksit ödendiğinde nominal tarih bir ay ilerler.
+- Örnek: 25 Kasım cumartesi ise kesim 27 Kasım pazartesi olur; 10 gün sonraki son ödeme 7 Aralık olarak hesaplanır.
+
+Ayarlar → **Tarih hesaplama → İş gününe taşı** anahtarıyla bu davranışı kapatabilirsin. Resmi tatiller 2025-2029 için tanımlıdır; sonraki yıllarda hafta sonu ve sabit milli bayramlar dikkate alınır. Kira, fatura ve abonelik gibi düzenli ödemeler girilen tarihte kalır. Bankan iş gününe taşıma yapmıyorsa anahtarı kapat.
+
 ## Yedekleme
 
 Ayarlar → **Yedek al** ile tüm kayıtları JSON olarak kaydet. iPhone'da paylaş menüsü açılır; **Dosyalar'a Kaydet** diyerek yeri kendin seçebilirsin. Paylaş menüsü çıkmazsa dosya **Dosyalar → İndirilenler** klasörüne gider. Safari verilerini temizlersen kayıtlar silinebilir; ara ara yedek al. **Yedekten yükle** ile geri yükle.
