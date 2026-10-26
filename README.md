@@ -88,7 +88,7 @@ Apple, web uygulamalarının uygulama kapalıyken kendi başına yerel bildirim 
 
 ## Yedekleme
 
-Ayarlar → **Yedek al** ile tüm kayıtları JSON olarak indir. Safari verilerini temizlersen kayıtlar silinebilir; ara ara yedek al. **Yedekten yükle** ile geri yükle.
+Ayarlar → **Yedek al** ile tüm kayıtları JSON olarak kaydet. iPhone'da paylaş menüsü açılır; **Dosyalar'a Kaydet** diyerek yeri kendin seçebilirsin. Paylaş menüsü çıkmazsa dosya **Dosyalar → İndirilenler** klasörüne gider. Safari verilerini temizlersen kayıtlar silinebilir; ara ara yedek al. **Yedekten yükle** ile geri yükle.
 
 ## Dosyalar
 

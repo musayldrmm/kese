@@ -9,7 +9,7 @@
   const STORAGE_KEY = "kese.data.v1";
   const SETTINGS_KEY = "kese.settings.v1";
   const NOTIFY_LOG_KEY = "kese.notifyLog.v1";
-  const APP_VERSION = "1.1.0";
+  const APP_VERSION = "1.1.1";
   const SCHEMA_VERSION = 2;
   const NOTIFICATION_CHECK_MS = 60 * 1000;
   const CALENDAR_MONTHS = 12;
@@ -2299,6 +2299,13 @@
   }
 
   function notificationStatusNote(permission) {
+    const iOS = /iPad|iPhone|iPod/.test(window.navigator.userAgent || "");
+    if (iOS && !isStandalone()) {
+      return {
+        icon: "info",
+        text: "iPhone'da sistem bildirimleri için önce Safari'den Ana Ekrana Ekle. Kurulumdan sonra Ayarlar → Bildirimler'den izin ver."
+      };
+    }
     if (permission === "unsupported") {
       return {
         icon: "alert",
@@ -2944,7 +2951,7 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1200);
   }
 
-  function exportBackup() {
+  async function exportBackup() {
     const payload = {
       app: "kese",
       schema: SCHEMA_VERSION,
@@ -2952,7 +2959,26 @@
       exportedAt: new Date().toISOString(),
       data
     };
-    downloadTextFile(`kese-yedek-${ymd(today())}.json`, JSON.stringify(payload, null, 2), "application/json");
+    const content = JSON.stringify(payload, null, 2);
+    const filename = `kese-yedek-${ymd(today())}.json`;
+    try {
+      const file = typeof window.File === "function" ? new File([content], filename, { type: "application/json" }) : null;
+      if (
+        file &&
+        window.navigator &&
+        typeof window.navigator.share === "function" &&
+        typeof window.navigator.canShare === "function" &&
+        window.navigator.canShare({ files: [file] })
+      ) {
+        await window.navigator.share({ files: [file], title: "Kese yedeği" });
+        showToast("Yedek paylaşıldı. Dosyayı Dosyalar'a kaydedebilirsin.", { icon: "download", duration: 5000 });
+        return;
+      }
+    } catch (error) {
+      if (error && error.name === "AbortError") return;
+      console.warn("Kese: yedek paylaşılamadı, indiriliyor", error);
+    }
+    downloadTextFile(filename, content, "application/json");
     showToast("Yedek dosyası indiriliyor.", { icon: "download" });
   }
 
