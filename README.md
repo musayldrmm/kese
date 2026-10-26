@@ -19,7 +19,7 @@ gerekir. Yedek dosyaları repoya eklenmesin diye `.gitignore` içinde hariç tut
 Bilgisayarda:
 
 ```bash
-cd /home/musa/mobilapp
+cd ~/mobilapp
 python3 -m http.server 4173 --bind 0.0.0.0
 ```
 
@@ -42,7 +42,7 @@ http://192.168.1.107:4173
 ### Seçenek 1 — Netlify Drop (en kolay)
 
 1. Bilgisayarda tarayıcıda <https://app.netlify.com/drop> adresini aç.
-2. `/home/musa/mobilapp` klasörünü sayfaya sürükle bırak.
+2. `mobilapp` klasörünü sayfaya sürükle bırak.
 3. Netlify'ın verdiği `https://....netlify.app` adresini iPhone'da **Safari** ile aç.
 4. Alttaki **Paylaş** düğmesine dokun.
 5. **Ana Ekrana Ekle** seçeneğini seç.
